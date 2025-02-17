@@ -1,0 +1,2264 @@
+---
+title: "Kramer_etal_Liver_ILCs"
+author: "Dillon Corvino"
+date: "17/02/2025"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    theme: united
+    highlight: tango
+    df_print: paged
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+Built with R version `r getRversion()`
+
+## Setup {.tabset}
+
+### Dataset information
+```{r Dataset_Info}
+
+
+```
+
+### Environment
+```{r setup}
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,  
+  eval = TRUE, 
+  tidy = TRUE
+)
+
+knitr::opts_knit$set(
+  root.dir = "../"
+)
+
+
+# Environment Set up
+rm(list = ls()) #Clean workspace
+cat("\014")     #Clean Console
+gc() # Free memory
+
+# pipeline variables
+long.compute <- FALSE
+do.plot <- TRUE
+
+# Establish working directory
+library("rstudioapi")
+
+# Set working directory to source file location
+setwd(dirname(getActiveDocumentContext()$path))
+setwd("..")
+
+# Create output directories & load custom functions & colour scheme
+source("scripts/Setup.R", local = knitr::knit_global())
+
+# load some packages explicitly 
+library(Seurat)
+library(SeuratExtend)
+library(scCustomize)
+library(dplyr)
+library(tibble)
+
+
+```
+
+### Load dataset & filter dataset
+```{r load_dataset}
+
+if(long.compute){
+  
+  
+  # read in raw data
+  raw_counts <- read.csv("data/raw_counts.csv")
+  
+  # make geneID the rownames
+  raw_counts <- raw_counts %>% 
+    tibble::column_to_rownames(var = "X") 
+  
+  # make cell ID match across metadata and counts tables
+  colnames(raw_counts) <- gsub("\\.", "-", colnames(raw_counts))
+  
+  
+  
+  metadata <- read.csv("data/metadata.csv")
+  head(metadata)
+  raw_counts[1:10, 1:10]  
+
+  
+  
+  
+  
+  seurat.object <- Seurat::CreateSeuratObject(counts = raw_counts, 
+                                              meta.data = metadata)
+  
+  seurat.object #21,144 genes across 5,468 cells
+  head(seurat.object@meta.data)
+  
+  table(seurat.object@meta.data$celltype)
+    table(seurat.object@meta.data$orig.ident) # sample 2 = 3,518 and sample 3 = 1,950 
+    
+    # save the orig.ident metadata as sample ID
+    seurat.object@meta.data$SampleID <- seurat.object@meta.data$orig.ident
+  
+    unique(seurat.object@meta.data$SampleID)
+    
+    seurat.object@meta.data <- seurat.object@meta.data %>%
+      dplyr::mutate(tissue = case_when(SampleID == "Sample2" ~ "LTX_Liver", 
+                                       SampleID == "Sample3" ~ "Ctrl_Liver", 
+                                       TRUE ~ "ERROR"))
+    
+    unique(seurat.object@meta.data$tissue)
+  
+  
+  # save seurat 
+    SaveH5Seurat(seurat.object, "saves/seurat_object.h5Seurat", overwrite = T)
+
+    }else{
+  
+  seurat.object <- LoadH5Seurat("saves/seurat_object.h5Seurat")
+  
+}
+
+```
+
+## QC and Filter {.tabset}
+
+### QC & filter
+```{r QC_and_filter}
+
+if(long.compute){
+  
+  
+    # Create output dir
+    output.dir <- "results/QC/"
+    
+    if(!dir.exists(output.dir)){
+      dir.create(output.dir, 
+                 recursive = T)
+          }
+    
+    
+    # set idents to sampleID
+    Idents(seurat.object) <- seurat.object$tissue
+    
+    # set default assay 
+    DefaultAssay(seurat.object) <- "RNA"
+    
+    # Add mitochondrial and ribosomal gene percentages
+    
+    seurat.object <- Add_Mito_Ribo(object = seurat.object, species = "Human", overwrite = TRUE) 
+    
+    # Add cell complexity/novelty QC metric
+    
+    seurat.object <- Add_Cell_Complexity(object = seurat.object, overwrite = TRUE)
+    
+    
+    
+    # No filtering done, just to get a view of the QC of the dataset
+    
+    # Setting cutoff values 
+    #feature.low <- 200
+    #feature.high <- 5500
+    #umi.low <- 500
+    #umi.high <- 45000
+    #mito.high <- 25
+    #ribo.high <- 2
+    #complexity.high <- 0.8
+    
+    
+    ########################
+    # QC plots
+    ########################
+    if(do.plot){
+      # nFeatures
+      print(
+        QC_Plots_Genes(seurat_object = seurat.object, 
+                       #low_cutoff = feature.low, 
+                       #high_cutoff = feature.high,
+                       pt.size = 0.05) 
+      )
+      
+      dev.copy(pdf, paste0(output.dir, "genes.pdf"))
+      dev.off()
+      
+      
+      # UMI
+      print(
+        QC_Plots_UMIs(seurat_object = seurat.object, 
+                      #low_cutoff = umi.low, 
+                      #high_cutoff = umi.high, 
+                      y_axis_log = T,
+                      pt.size = 0.05)
+      )
+      
+      dev.copy(pdf, paste0(output.dir, "UMI.pdf"))
+      dev.off()
+      
+      
+      # Mito percentage
+      print(
+        QC_Plots_Mito(seurat_object = seurat.object, 
+                     # high_cutoff = mito.high,
+                      pt.size = 0.05)
+      )
+      
+      dev.copy(pdf, paste0(output.dir, "mito.pdf"))
+      dev.off()
+      
+      
+      # Ribo percentage
+      print(
+        QC_Plots_Feature(seurat_object = seurat.object,
+                         feature = "percent_ribo",
+                         #high_cutoff = ribo.high,
+                         pt.size = 0.05)
+      )
+      
+      dev.copy(pdf, paste0(output.dir, "Ribo.pdf"))
+      dev.off()
+      
+      
+      # Complexity
+      print(
+        QC_Plots_Complexity(seurat_object = seurat.object, 
+                            #high_cutoff = complexity.high,
+                            pt.size = 0.05)
+      ) 
+      
+      dev.copy(pdf, paste0(output.dir, "complexity.pdf"))
+      dev.off()
+      
+    }
+    
+  
+}
+
+```
+
+
+### Dim Reduction
+
+## Normalise & integrate GEX data
+```{r Normalise_and_integrate_GEX_data}
+
+if(long.compute){
+  
+  # set default assay 
+  DefaultAssay(seurat.object) <- "RNA"
+  
+  # split object up based on sequencing run / in seurat V5 these are splitting the layers
+  seurat.object[["RNA"]] <- split(seurat.object[["RNA"]],  f = seurat.object$SampleID)
+  
+  
+  
+  #####################################################
+  # Normalise with scTransform and integrate data
+  #####################################################
+  # note error with more recent version of matrixStats resulting in "useNames = NA is defunct" error. downgrade to matrixStats version 1.1.0 as a workaround
+  # https://github.com/satijalab/seurat/issues/7501#issuecomment-1854571904
+  #remotes::install_version("matrixStats", version="1.1.0") # restart your session and run previous scripts  
+  
+  
+  # note RNA assay is split into run level layers, below script will apply normalisation etc layer-wise
+  
+  # Normalise and scale with SCTransform v2
+  seurat.object <- SCTransform(seurat.object, 
+                           method = "glmGamPoi", 
+                           vars.to.regress = "percent_mito", 
+                           vst.flavor = "v2",
+                           verbose = TRUE) %>%
+    RunPCA(reduction.name = "pca_sct") %>%
+    RunUMAP(reduction = "pca_sct",
+            dims = 1:30, 
+            reduction.name = "umap.unintegrated.sct")
+  
+  DefaultAssay(seurat.object) <- "SCT"
+  
+  # integrate layers using cca integration
+  seurat.object <- IntegrateLayers(object = seurat.object,
+                               orig.reduction = "pca_sct",
+                               new.reduction = "integrated.cca.sct",
+                               method = CCAIntegration,
+                               normalization.method = "SCT",
+                               verbose = TRUE)
+  
+  # find clusters and dim reduction using integrated data
+  seurat.object <- FindNeighbors(seurat.object,
+                             dims = 1:30,
+                             reduction = "integrated.cca.sct") %>%
+    FindClusters(resolution = 1.5, 
+                 cluster.name = "clusters_cca_sct") %>%
+    RunUMAP(reduction = "integrated.cca.sct",
+            dims = 1:30, 
+            reduction.name = "umap.cca.sct")
+  
+}
+
+```
+
+
+## Visualise integration 
+```{r vis_integration}
+
+if(do.plot){
+  
+  # create output dir
+  output.dir <- paste0("results/integration/")
+  
+  if(!dir.exists(output.dir)){
+    dir.create(output.dir, 
+               recursive = T)
+    
+  }
+  
+  
+  unintegrated.reduction <- "umap.unintegrated.sct"
+  integrated.reduction <- "umap.cca.sct"
+  title.var <- "SCT"
+  
+  
+  # evaluate integration and dim reduction
+  
+  vars.plot <- c("SampleID", "celltype")
+  for(i in seq_along(vars.plot)){
+    
+    
+    # remove "." from name
+    name.var <- gsub("\\.", "_", vars.plot[i])
+    
+    before.int <- DimPlot(seurat.object,
+                          reduction = unintegrated.reduction, 
+                          label = T,
+                          group.by = vars.plot[i]) + NoLegend() + ggtitle(paste0("Unintegrated ", title.var, " Normalisation"))
+    
+    after.int <- DimPlot(seurat.object,
+                         reduction = integrated.reduction, 
+                         label = T,
+                         group.by = vars.plot[i]) + NoLegend() + ggtitle(paste0("CCA Integration using ", title.var, " Normalisation"))
+    
+    print(before.int | after.int)
+    dev.copy(pdf, paste0(output.dir, "UMAP_before_after_integration", name.var, ".pdf"))
+    dev.off()
+    
+  }
+  
+}
+
+```
+
+
+
+
+
+
+
+
+# calc ifn respons sig and plot this across cells 
+
+
+
+
+
+
+
+
+
+
+### Figure 1D - Sojka IFN response heatmap & z-score
+```{r Figure_1D_Sojka}
+
+# output dir
+output.dir <- "results/figures/Figure_1/"
+
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+
+
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(rstatix)
+library(ggpubr)
+
+
+
+msigdbr::msigdbr_collections()
+
+msigdbr::msigdbr_species()
+
+# Mus musculus
+Hallmarks.genes <- msigdbr::msigdbr(species = "Mus musculus", category = "H")
+
+
+hall.sigs <- unique(Hallmarks.genes$gs_name)
+
+
+# extract interferon signature
+hallmark.signature <- Hallmarks.genes %>%
+  dplyr::filter(gs_name == "HALLMARK_INTERFERON_ALPHA_RESPONSE") %>%
+  pull(gene_symbol)
+
+
+heatmap.df <- sojka.ordered.counts[rownames(sojka.ordered.counts) %in% hallmark.signature, ]
+
+
+
+######################################
+# with spleen NK sample
+######################################
+
+
+# calculate Z-score
+z_scores <- t(scale(t(heatmap.df)))
+z_scores <- colSums(z_scores)
+
+# Convert the z-scores matrix to a data frame
+z_scores_df <- as.data.frame(z_scores)
+colnames(z_scores_df) <- "z_scores"
+
+# Add a column indicating the group for each sample
+z_scores_df$Group <- gsub("_\\d+$", "", rownames(z_scores_df))
+z_scores_df$Group <- factor(z_scores_df$Group, levels = c("Spleen_NK", "Liver_NK", "Liver_ILC"))
+
+# stats calcualtion 
+ggpubr::compare_means(z_scores ~ Group,  data = z_scores_df)
+
+# stats to plot
+my.comparisons <- list( c("Spleen_NK", "Liver_NK"), c("Spleen_NK", "Liver_ILC"), c("Liver_NK", "Liver_ILC") )
+
+
+# Plot boxplot
+p1 <- ggplot(z_scores_df, aes(x = Group, y = z_scores, fill = Group)) +
+  geom_boxplot() +
+  geom_point(position = position_jitter(width = 0.1), alpha = 0.5) +  # Add points with jitter for better visualization
+  labs(x = "Group", y = "Z-Score", title = "Boxplot of Z-Scores by Group") +
+  theme_minimal() +
+  ggpubr::stat_compare_means(comparisons = my.comparisons, method = "wilcox.test") +
+  ggpubr::stat_compare_means(method = "kruskal.test") # add anova pvalue 
+    
+print(p1)
+dev.copy(pdf, paste0(output.dir, "Figure_1D_Sojka.pdf"))
+dev.off()
+
+######################################
+# without spleen NK sample
+######################################
+
+heatmap.df <- sojka.ordered.counts[rownames(sojka.ordered.counts) %in% hallmark.signature, ]
+
+# remove Spleen
+colnames(heatmap.df)
+heatmap.df <- heatmap.df[,!grepl("Spleen.*", colnames(heatmap.df))]
+
+# calculate Z-score
+z_scores <- t(scale(t(heatmap.df)))
+z_scores <- colSums(z_scores)
+
+# Convert the z-scores matrix to a data frame
+z_scores_df <- as.data.frame(z_scores)
+colnames(z_scores_df) <- "z_scores"
+
+# Add a column indicating the group for each sample
+z_scores_df$Group <- sub("_[^_]+$", "", rownames(z_scores_df))
+z_scores_df$Group <- factor(z_scores_df$Group, levels = c("Liver_NK", "Liver_ILC"))
+
+
+
+# stats calcualtion 
+ggpubr::compare_means(z_scores ~ Group,  data = z_scores_df)
+
+# stats to plot
+my.comparisons <- list(c("Liver_NK", "Liver_ILC"))
+
+
+# Plot boxplot
+library(ggplot2)
+p1 <- ggplot(z_scores_df, aes(x = Group, y = z_scores, fill = Group)) +
+  geom_boxplot() +
+  geom_point(position = position_jitter(width = 0.1), alpha = 0.5) +  # Add points with jitter for better visualization
+    labs(x = "Group", y = "Z-Score", title = "Boxplot of Z-Scores by Group") +
+  theme_minimal() +
+  ggpubr::stat_compare_means(method = "t.test") 
+
+print(p1)
+
+dev.copy(pdf, paste0(output.dir, "Figure_1D_Boxplot_no_spleen.pdf"))
+dev.off()
+
+ 
+```
+
+
+
+
+
+
+
+
+## Dataset overview {.tabset}
+
+## Imputation {.tabset}
+
+### Imputate gene expression
+```{r imputation}
+
+if(long.compute){
+  
+  output.dir <- "saves/"
+  if(!dir.exists(output.dir)){
+    dir.create(output.dir, 
+               recursive = T)}
+  
+  
+  # check that genes of interest are in variable genes list 
+  pbmc.seurat # 20,957 genes across 161,159 cells
+  
+  DefaultAssay(pbmc.seurat) <- "SCT"
+  
+  var.features <- VariableFeatures(pbmc.seurat)
+  
+  # are genes of interest in variable genes list 
+  x <- grep(paste0(all.markers, collapse = "|"), var.features, value = T)
+  print(x)
+  length(x)
+  length(all.markers)
+  
+  # yes all genes of interst are in variable features
+  
+  pbmc.seurat <- SeuratWrappers::RunALRA(pbmc.seurat, 
+                                         genes.use = var.features)
+  
+  # Export dataset for easy import
+  SeuratDisk::SaveH5Seurat(pbmc.seurat, "saves/pbmc_seurat_imputed.h5Seurat", overwrite = TRUE)
+  
+  DefaultAssay(pbmc.seurat) <- "SCT"
+  
+}
+
+
+```
+
+## Visualise {.tabset}
+
+### Visualise Cytotoxic molecule expression -- imputed
+```{r vis_cytotoxic_across_whole_dataset_imputed}
+
+# set assay 
+DefaultAssay(pbmc.seurat) <- "alra"
+
+cts.genes <- grep("CTS.*", rownames(pbmc.seurat), value = T)
+goi <- c(cytotoxicity.markers, cts.genes)
+
+
+
+######################
+# plot featureplots
+######################
+
+output.dir <- "results/figures/FeaturePlots_imputed/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+
+for(i in seq_along(goi)){
+  print(
+    FeaturePlot(pbmc.seurat,
+                features = goi[i],
+                reduction = "wnn.umap",
+                order = TRUE, 
+                pt.size = 1, 
+                raster = TRUE) + 
+      NoLegend()
+  )
+  
+  dev.copy(pdf, paste0(output.dir, "wnnUMAP_FeaturePlot_", goi[i], ".pdf"))
+  dev.off()
+  
+}
+
+
+######################
+# plot density plots
+######################
+
+output.dir <- "results/figures/DensityPlots_imputed/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+for(i in seq_along(goi)){
+  print(
+    scCustomize::Plot_Density_Custom(pbmc.seurat,
+                                     features = goi[i],
+                                     custom_palette = batlow.pal,
+                                     reduction = "wnn.umap", 
+                                     pt.size = 1) + 
+      NoLegend()
+  )
+  
+  dev.copy(pdf, paste0(output.dir, "wnnUMAP_DensityPlot_", goi[i], ".pdf"))
+  dev.off()
+  
+}
+
+
+######################
+# Violin Plots
+######################
+output.dir <- "results/figures/Stacked_VlnPlots_imputed/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+vars.plot <- c("celltype.l1", "celltype.l2", "celltype.l3", "custom_anno")
+
+
+for(i in seq_along(vars.plot)){
+  print(
+    scCustomize::Stacked_VlnPlot(pbmc.seurat, 
+                                 features = cytotoxicity.markers,
+                                 pt.size = 0, 
+                                 group.by = vars.plot[i],
+                                 x_lab_rotate = TRUE)
+  )
+  
+  name.var <- gsub("\\.", "_", vars.plot[i])
+  dev.copy(pdf, paste0(output.dir, "Stacked_vlnplots_cytotoxicity_markers_", name.var, ".pdf"))
+  dev.off()
+}
+
+
+scCustomize::Stacked_VlnPlot(pbmc.seurat, 
+                             features = cts.genes,
+                             pt.size = 0, 
+                             group.by = "custom_anno",
+                             x_lab_rotate = TRUE)
+
+dev.copy(pdf, paste0(output.dir, "Stacked_vlnplots_CTS_genes.pdf"))
+dev.off()
+
+
+
+
+
+
+######################
+# Heatmaps
+######################
+
+output.dir <- "results/figures/Heatmaps_imputed/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+
+vars.plot <- c("celltype.l1", "celltype.l2", "celltype.l3", "custom_anno")
+
+for(i in seq_along(vars.plot)){
+  Idents(pbmc.seurat) <- pbmc.seurat@meta.data[[vars.plot[i]]]
+  
+  average.seurat <- AverageExpression(pbmc.seurat, return.seurat = TRUE)
+  
+  print(
+    DoHeatmap(average.seurat, 
+              features = cytotoxicity.markers,
+              draw.lines = FALSE, 
+              raster = FALSE) + 
+      scico::scale_fill_scico(palette = "batlow", 
+                              direction = 1, 
+                              na.value = "white")
+  )
+  
+  name.var <- gsub("\\.", "_", vars.plot[i])
+  dev.copy(pdf, paste0(output.dir, "Heatmap_cytotoxicity_markers_", name.var, ".pdf"))
+  dev.off()
+  
+  
+  print(
+    DoHeatmap(average.seurat, 
+              features = cts.genes,
+              draw.lines = FALSE, 
+              raster = FALSE) + 
+      scico::scale_fill_scico(palette = "batlow", 
+                              direction = 1, 
+                              na.value = "white")
+  )
+  
+  name.var <- gsub("\\.", "_", vars.plot[i])
+  dev.copy(pdf, paste0(output.dir, "Heatmap_CTS_genes_", name.var, ".pdf"))
+  dev.off()
+  
+}
+
+```
+
+
+
+
+### Subsetted vlnplots granzymes -- imputed
+```{r vlnplots_granzymes_imputed}
+
+# set assay 
+DefaultAssay(pbmc.seurat) <- "alra"
+
+goi <- c(cytotoxicity.markers)
+
+
+######################
+# Violin Plots
+######################
+output.dir <- "results/figures/Stacked_VlnPlots_imputed_fig_1/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+
+for(i in 1:length(cell.groups)){
+  Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+  temp.seurat <- subset(pbmc.seurat, idents = cell.groups[[i]])
+  
+  p1 <- scCustomize::Stacked_VlnPlot(temp.seurat, 
+                                     features = goi,
+                                     pt.size = 0, 
+                                     group.by = "custom_anno",
+                                     x_lab_rotate = 90) 
+  
+  for(j in 1:length(p1)){
+    p1[[j]] <- p1[[j]] + theme(
+      plot.margin = margin(t = 0,
+                           r = 10,
+                           b = 0,
+                           l = 0, unit = "cm")
+    )
+  }
+  
+  print(p1)
+  
+  dev.copy(pdf, paste0(output.dir, "Stacked_Vlnplots_",  names(cell.groups)[i], "group_cytotoxicity_imputed_.pdf"))
+  dev.off()
+}
+
+
+```
+
+
+
+### Subsetted vlnplots NKG7 vs TIA1 -- Raw values -- TIA1 not found in imputed
+```{r vlnplots_NKG7_vs_TIA1_imputed}
+
+# set assay 
+DefaultAssay(pbmc.seurat) <- "SCT"
+
+goi <- c("NKG7", "TIA1")
+
+######################
+# Violin Plots
+######################
+output.dir <- "results/figures/PBMC_Stacked_VlnPlots_SCT_TIA1_and_NKG7/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+
+for(i in 1:length(cell.groups)){
+  Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+  temp.seurat <- subset(pbmc.seurat, idents = cell.groups[[i]])
+  
+  p1 <- scCustomize::Stacked_VlnPlot(temp.seurat, 
+                                     features = goi,
+                                     pt.size = 0, 
+                                     group.by = "custom_anno",
+                                     x_lab_rotate = 90) 
+  
+  for(j in 1:length(p1)){
+    p1[[j]] <- p1[[j]] + theme(
+      plot.margin = margin(t = 0,
+                           r = 10,
+                           b = 0,
+                           l = 0, unit = "cm")
+    )
+  }
+  
+  print(p1)
+  
+  dev.copy(pdf, paste0(output.dir, "Stacked_Vlnplots_",  names(cell.groups)[i], "group_NKG7_vs_TIA1_SCT.pdf"))
+  dev.off()
+}
+
+
+
+
+
+# across all annotation
+Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+
+
+scCustomize::Stacked_VlnPlot(pbmc.seurat, 
+                             features = goi,
+                             pt.size = 0, 
+                             group.by = "custom_anno",
+                             x_lab_rotate = 90) 
+
+
+
+dev.copy(pdf, paste0(output.dir, "Stacked_Vlnplots_NKG7_vs_TIA1_SCT.pdf"))
+dev.off()
+
+
+
+
+
+
+```
+
+
+
+### Subsetted vlnplots CST genes
+```{r vlnplots_CST_genes}
+
+
+######################
+# Violin Plots
+######################
+
+output.dir <- "results/figures/Stacked_VlnPlots_CST_genes/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+
+######################
+# for imputed genes 
+######################
+
+# set assay 
+DefaultAssay(pbmc.seurat) <- "alra"
+
+goi <- grep("^CST.", rownames(pbmc.seurat), value = T)
+
+
+for(i in 1:length(cell.groups)){
+  Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+  temp.seurat <- subset(pbmc.seurat, idents = cell.groups[[i]])
+  
+  p1 <- scCustomize::Stacked_VlnPlot(temp.seurat, 
+                                     features = goi,
+                                     pt.size = 0, 
+                                     group.by = "custom_anno",
+                                     x_lab_rotate = 90) 
+  
+  for(j in 1:length(p1)){
+    p1[[j]] <- p1[[j]] + theme(
+      plot.margin = margin(t = 0,
+                           r = 10,
+                           b = 0,
+                           l = 0, unit = "cm")
+    )
+  }
+  
+  print(p1)
+  
+  dev.copy(pdf, paste0(output.dir, "Stacked_Vlnplots_",  names(cell.groups)[i], "group_CST_genes_imputed.pdf"))
+  dev.off()
+}
+
+
+######################
+# for rna genes 
+######################
+
+# set assay 
+DefaultAssay(pbmc.seurat) <- "SCT"
+
+goi <- grep("^CST.", rownames(pbmc.seurat), value = T)
+
+
+for(i in 1:length(cell.groups)){
+  Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+  temp.seurat <- subset(pbmc.seurat, idents = cell.groups[[i]])
+  
+  p1 <- scCustomize::Stacked_VlnPlot(temp.seurat, 
+                                     features = goi,
+                                     pt.size = 0, 
+                                     group.by = "custom_anno",
+                                     x_lab_rotate = 90) 
+  
+  for(j in 1:length(p1)){
+    p1[[j]] <- p1[[j]] + theme(
+      plot.margin = margin(t = 0,
+                           r = 10,
+                           b = 0,
+                           l = 0, unit = "cm")
+    )
+  }
+  
+  print(p1)
+  
+  dev.copy(pdf, paste0(output.dir, "Stacked_Vlnplots_",  names(cell.groups)[i], "group_CST_genes.pdf"))
+  dev.off()
+}
+
+
+```
+
+### Subsetted vlnplots CTS genes
+```{r vlnplots_CTS_genes}
+
+######################
+# Violin Plots
+######################
+
+output.dir <- "results/figures/Stacked_VlnPlots_CTS_genes/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+
+
+######################
+# for imputed genes 
+######################
+
+# set assay 
+DefaultAssay(pbmc.seurat) <- "alra"
+
+goi <- grep("^CTS.", rownames(pbmc.seurat), value = T)
+
+
+for(i in 1:length(cell.groups)){
+  Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+  temp.seurat <- subset(pbmc.seurat, idents = cell.groups[[i]])
+  
+  p1 <- scCustomize::Stacked_VlnPlot(temp.seurat, 
+                                     features = goi,
+                                     pt.size = 0, 
+                                     group.by = "custom_anno",
+                                     x_lab_rotate = 90) 
+  
+  for(j in 1:length(p1)){
+    p1[[j]] <- p1[[j]] + theme(
+      plot.margin = margin(t = 0,
+                           r = 10,
+                           b = 0,
+                           l = 0, unit = "cm")
+    )
+  }
+  
+  print(p1)
+  
+  dev.copy(pdf, paste0(output.dir, "Stacked_Vlnplots_",  names(cell.groups)[i], "group_CTS_genes_imputed.pdf"))
+  dev.off()
+}
+
+######################
+# for rna genes 
+######################
+
+# set assay 
+DefaultAssay(pbmc.seurat) <- "SCT"
+
+goi <- grep("^CTS.", rownames(pbmc.seurat), value = T)
+
+
+for(i in 1:length(cell.groups)){
+  Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+  temp.seurat <- subset(pbmc.seurat, idents = cell.groups[[i]])
+  
+  p1 <- scCustomize::Stacked_VlnPlot(temp.seurat, 
+                                     features = goi,
+                                     pt.size = 0, 
+                                     group.by = "custom_anno",
+                                     x_lab_rotate = 90) 
+  
+  for(j in 1:length(p1)){
+    p1[[j]] <- p1[[j]] + theme(
+      plot.margin = margin(t = 0,
+                           r = 10,
+                           b = 0,
+                           l = 0, unit = "cm")
+    )
+  }
+  
+  print(p1)
+  
+  dev.copy(pdf, paste0(output.dir, "Stacked_Vlnplots_",  names(cell.groups)[i], "group_CTS_genes.pdf"))
+  dev.off()
+}
+```
+
+### Heatmap CST, CTS, and Cyto genes
+```{r Heatmap_CST_CTS_cyto_genes}
+
+######################
+# Heatmap plot
+######################
+
+output.dir <- "results/figures/Heatmap_CST_CTS_cytogenes/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+########################
+# For imputed genes
+########################
+
+# set assay 
+DefaultAssay(pbmc.seurat) <- "alra"
+
+Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+temp.seurat <- AverageExpression(pbmc.seurat, return.seurat = TRUE)
+
+
+goi.1 <- grep("^CTS.", rownames(temp.seurat), value = T)
+goi.2 <- grep("^CST.", rownames(temp.seurat), value = T)
+goi <- c(cytotoxicity.markers, goi.1, goi.2)
+
+
+
+DoHeatmap(temp.seurat, 
+          features = goi,
+          draw.lines = FALSE, 
+          raster = FALSE) + 
+  scico::scale_fill_scico(palette = "batlow", 
+                          direction = 1, 
+                          na.value = "white")
+
+dev.copy(pdf, paste0(output.dir, "Heatmap_CST_CTS_cytogenes_imputed.pdf"))
+dev.off()
+
+########################
+# For RNA genes
+########################
+
+# set assay 
+DefaultAssay(pbmc.seurat) <- "SCT"
+
+Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+temp.seurat <- AverageExpression(pbmc.seurat, return.seurat = TRUE)
+
+goi.1 <- grep("^CTS.", rownames(temp.seurat), value = T)
+goi.2 <- grep("^CST.", rownames(temp.seurat), value = T)
+goi <- c(cytotoxicity.markers, goi.1, goi.2)
+
+
+DoHeatmap(temp.seurat, 
+          features = goi,
+          draw.lines = FALSE, 
+          raster = FALSE) + 
+  scico::scale_fill_scico(palette = "batlow", 
+                          direction = 1, 
+                          na.value = "white")
+
+dev.copy(pdf, paste0(output.dir, "Heatmap_CST_CTS_cytogenes.pdf"))
+dev.off()
+
+```
+
+## Cytotoxicity module score & Correlation analysis {.tabset}
+
+### Module score for cytotoxicity & Density plot
+```{r cytotoxicity_and_density_plot}
+
+DefaultAssay(pbmc.seurat) <- "SCT"
+
+pbmc.seurat <- AddModuleScore(pbmc.seurat,
+                              features = list(cytotoxicity.markers),
+                              name = "Cytotoxicity_all")
+
+
+######################
+# plot density plots
+######################
+
+output.dir <- "results/figures/Fig_1/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+scCustomize::Plot_Density_Custom(pbmc.seurat,
+                                 features = "Cytotoxicity_all1",
+                                 custom_palette = rev(batlow.pal),
+                                 reduction = "wnn.umap", 
+                                 pt.size = 1) + 
+  NoLegend()
+
+dev.copy(pdf, paste0(output.dir, "wnnUMAP_DensityPlot_cytotoxicity_allmarkers.pdf"))
+dev.off()
+
+VlnPlot_scCustom(pbmc.seurat,
+                 features = "Cytotoxicity_all1",
+                 pt.size = 0,
+                 group.by = "custom_anno",
+                 sort = "increasing",
+                 log = F) + NoLegend()
+
+dev.copy(pdf, paste0(output.dir, "VlnPlot_cytotoxicity_allmarkers_ordered.pdf"))
+dev.off()
+
+```
+
+
+### Test for bimodality
+```{r test_bimodality}
+
+#BiocManager::install("diptest")
+#BiocManager::install("mclust")
+
+# Load required packages
+library(Seurat)
+library(diptest)
+library(dplyr)
+
+
+
+output.dir <- "results/figures/bimodality_test/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+
+# Load required packages
+library(Seurat)
+library(diptest)
+library(dplyr)
+library(ggplot2)
+
+# Extract metadata from Seurat object
+metadata <- pbmc.seurat@meta.data
+
+# Perform dip test for each unique group in 'custom_anno'
+dip_results <- metadata %>%
+  group_by(custom_anno) %>%
+  summarise(
+    Dip_Statistic = dip.test(Cytotoxicity_all1)$statistic,
+    P_Value = dip.test(Cytotoxicity_all1)$p.value
+  ) %>%
+  ungroup()
+
+# Apply FDR correction for multiple testing
+dip_results <- dip_results %>%
+  mutate(
+    Adjusted_P_Value = p.adjust(P_Value, method = "fdr"),
+    P_Value = ifelse(P_Value < 2.2e-16, "< 2.2e-16", formatC(P_Value, format = "e", digits = 10)), #keep precision and set to r float point limit if less than 2.2e-16
+    Adjusted_P_Value = ifelse(Adjusted_P_Value < 2.2e-16, "< 2.2e-16", formatC(Adjusted_P_Value, format = "e", digits = 10)),
+    Significance = ifelse(as.numeric(gsub("< ", "", Adjusted_P_Value)) < 0.05, "Significant", "Not Significant")
+  )
+
+# Print results with full precision
+print(dip_results)
+
+# Save results to a CSV file
+write.csv(dip_results, paste0(output.dir, "bimodality_test_results.csv"), row.names = FALSE, quote = TRUE)
+
+# Create density plots for each subset
+for (subset in unique(metadata$custom_anno)) {
+  subset_data <- metadata %>% filter(custom_anno == subset) %>% pull(Cytotoxicity_all1)
+  
+  # Skip plotting if the subset has fewer than 5 values (density estimation requires more points)
+  if (length(subset_data) < 5) next 
+  
+  # Create and save the histogram with density plot
+  p <- ggplot(data.frame(Cytotoxicity_all1 = subset_data), aes(x = Cytotoxicity_all1)) +
+    geom_histogram(aes(y = after_stat(density)), bins = 30, fill = "blue", alpha = 0.5) +
+    geom_density(color = "red", lwd = 1.5) +
+    ggtitle(paste("Histogram of Cytotoxicity_all1 (", subset, ")", sep = "")) +
+    xlab("Cytotoxicity Score") +
+    ylab("Density") +
+    theme_minimal()
+  
+  print(p)  # Display plot
+  
+  # Save the plot as an image
+  ggsave(filename = paste0(output.dir, "density_plot_", subset, ".png"), plot = p, width = 6, height = 4)
+}
+
+
+```
+
+
+
+
+### Correlation scatters
+```{r correlation_scatter}
+
+output.dir <- "results/figures/Correlation_scatter/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+
+DefaultAssay(pbmc.seurat) <- "SCT"
+Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+
+avg.seurat <- AverageExpression(pbmc.seurat, 
+                                group.by = "custom_anno",
+                                return.seurat = TRUE)
+
+# really unsure why the annotation gets messed up. but use below to reset the annotation to custom_anno grouping
+avg.seurat@meta.data$orig.ident <- rownames(avg.seurat@meta.data)
+Idents(avg.seurat) <- avg.seurat@meta.data$orig.ident
+
+
+
+goi <- list()
+
+for(i in seq_along(cytotoxicity.markers)){
+  goi[[i]] <- cytotoxicity.markers[-i]
+  name.var <- paste0("cytotoxicity_minus_", cytotoxicity.markers[i])
+  names(goi)[i] <- name.var
+}
+
+goi[[length(goi)+1]] <- cytotoxicity.markers
+names(goi)[length(goi)] <- "Full_cytotoxicity_sig"
+
+
+
+avg.seurat <- AddModuleScore(avg.seurat,
+                             features = goi, 
+                             name = names(goi))
+
+
+end.point <- length(colnames(avg.seurat@meta.data))
+start.point <- end.point-length(goi)
+start.point <- start.point + 1
+colnames(avg.seurat@meta.data)[start.point:end.point]
+
+
+library(stringr)
+string.var <- colnames(avg.seurat@meta.data)[start.point:end.point]
+new_string <- str_remove(string.var, ".$")
+colnames(avg.seurat@meta.data)[start.point:end.point] <- new_string
+
+
+for(i in seq_along(goi)){
+  if(names(goi)[i] == "Full_cytotoxicity_sig"){next}
+  
+  feature.1.var <- names(goi)[i]
+  feature.2.var <- gsub("cytotoxicity_minus_", "", feature.1.var)
+  
+  print(
+    FeatureScatter(avg.seurat, 
+                   feature1 = feature.1.var,
+                   feature2 = feature.2.var,
+                   pt.size = 5,
+                   span = TRUE) + scale_x_continuous(limits = c(-1, 1.5))
+  )
+  
+  dev.copy(pdf, paste0(output.dir, "Cor_scatter_", feature.1.var, "_vs_", feature.2.var, ".pdf"))
+  dev.off()
+}
+
+
+
+# cor score without pDC for GZMB sig 
+Idents(avg.seurat)
+temp.seurat <- subset(avg.seurat, idents = "pDC", invert = T)
+
+FeatureScatter(temp.seurat, 
+               feature1 = "cytotoxicity_minus_GZMB",
+               feature2 = "GZMB",
+               pt.size = 5,
+               span = TRUE) + scale_x_continuous(limits = c(-1, 1.5))
+
+dev.copy(pdf, paste0(output.dir, "Cor_scatter_Cytotoxicity_minus_GZMB_vs_GZMB_without_pDC_subset.pdf"))
+dev.off()
+
+
+
+```
+
+
+### Correlation Granzymes vs Granzymes
+```{r Correlation_granzymes_vs_granzymes}
+
+# Create results directories
+output.dir <- "results/figures/Correlation_Granzyme_vs_Granzyme/"
+
+if(!dir.exists(output.dir)){
+  dir.create(output.dir,
+             recursive = TRUE)}
+
+# load package
+require(corrplot)
+
+##########################
+# Calculate correlation
+##########################
+
+
+# Function
+cor.mtest <- function(mat, ...) {
+  n <- ncol(mat)
+  p.mat <- matrix(NA, n, n)
+  diag(p.mat) <- 0
+  for (i in 1:(n - 1)) {
+    for (j in (i + 1):n) {
+      tmp <- cor.test(mat[, i], mat[, j], ...)
+      p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+    }
+  }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+
+
+########################
+# Normalised RNA values
+########################
+
+DefaultAssay(pbmc.seurat) <- "SCT"
+Idents(pbmc.seurat) <- pbmc.seurat@meta.data$celltype.l1
+table(pbmc.seurat@meta.data$custom_anno, pbmc.seurat@meta.data$celltype.l1)
+
+# Perform analysis as all cytotoxic cells (i.e CD4/CD8/NK), then CD4, CD8, or NK individual correlation plots
+group.list <- list(cytotoxic_cells = c("CD8_T", "NK"), 
+                   CD8_cells = c("CD8_T"), 
+                   NK_cells = c("NK"))
+
+
+for(i in 1:length(group.list)){
+  
+  # subset dataset for particular cell types
+  group.name <- names(group.list)[i]
+  temp.seurat <- subset(pbmc.seurat, idents = group.list[[i]])
+  
+  
+  # extract RNA info
+  RNA.data <- temp.seurat@assays$SCT@data
+  
+  # reduce dataset to just cytotoxic genes
+  index.vec <- grep(paste0("^", cytotoxicity.markers, "$", collapse = "|"), rownames(RNA.data))
+  
+  RNA.data <- RNA.data[index.vec, ]
+  RNA.data <- t(as.matrix(RNA.data))
+  head(RNA.data)
+  rownames(RNA.data)
+  
+  # Calculate correlation
+  corr.val <- cor(RNA.data)
+  
+  # Plot correlation
+  
+  print(
+    corrplot(corr.val,
+             method = "color", 
+             type = "full", 
+             order = "hclust", 
+             tl.col = "black", 
+             diag = F))
+  
+  dev.copy(pdf,
+           paste0(output.dir, "Corplot_RNA_", group.name, ".pdf"))
+  dev.off()
+  
+  
+  # matrix of the p-value of the correlation
+  p.mat <- cor.mtest(RNA.data)
+  
+  print(
+    corrplot(corr.val,
+             method = "color", 
+             type = "full", 
+             order = "hclust", 
+             tl.col = "black", 
+             diag = FALSE,
+             p.mat = p.mat,
+             sig.level = 0.01, 
+             insig = "blank")
+  )
+  
+  dev.copy(pdf,
+           paste0(output.dir, "Corplot_RNA_", group.name, "_sig_values_only.pdf"))
+  dev.off()
+  
+}
+
+
+```
+
+### Correlation CTS and CST genes vs Granzymes
+```{r Correlation_CTS_CST_vs_Granzymes}
+
+# Create results directories
+output.dir <- "results/figures/Correlation_CTS_CST_vs_Granzymes/"
+
+if(!dir.exists(output.dir)){
+  dir.create(output.dir,
+             recursive = TRUE)}
+
+# load package
+require(corrplot)
+
+##########################
+# Calculate correlation
+##########################
+
+
+# Function
+cor.mtest <- function(mat, ...) {
+  n <- ncol(mat)
+  p.mat <- matrix(NA, n, n)
+  diag(p.mat) <- 0
+  for (i in 1:(n - 1)) {
+    for (j in (i + 1):n) {
+      tmp <- cor.test(mat[, i], mat[, j], ...)
+      p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+    }
+  }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+
+
+########################
+# Normalised RNA values
+########################
+
+DefaultAssay(pbmc.seurat) <- "SCT"
+Idents(pbmc.seurat) <- pbmc.seurat@meta.data$celltype.l1
+table(pbmc.seurat@meta.data$custom_anno, pbmc.seurat@meta.data$celltype.l1)
+
+# Perform analysis as all cytotoxic cells (i.e CD8/NK), then CD4, CD8, or NK individual correlation plots
+group.list <- list(cytotoxic_cells = c("CD8_T", "NK"), 
+                   CD8_cells = c("CD8_T"), 
+                   NK_cells = c("NK"))
+
+
+##################################################
+# Analysis for CTS genes vs granzyme genes 
+##################################################
+
+cts.genes <- grep("^CTS.", rownames(pbmc.seurat), value = T)
+goi <- c(cytotoxicity.markers, cts.genes)
+
+
+for(i in 1:length(group.list)){
+  
+  # subset dataset for particular cell types
+  group.name <- names(group.list)[i]
+  temp.seurat <- subset(pbmc.seurat, idents = group.list[[i]])
+  
+  
+  # extract RNA info
+  RNA.data <- temp.seurat@assays$SCT@data
+  
+  # reduce dataset to just cytotoxic genes
+  index.vec <- grep(paste0("^", goi, "$", collapse = "|"), rownames(RNA.data))
+  
+  RNA.data <- RNA.data[index.vec, ]
+  RNA.data <- t(as.matrix(RNA.data))
+  head(RNA.data)
+  rownames(RNA.data)
+  
+  # Calculate correlation
+  corr.val <- cor(RNA.data)
+  
+  # Plot correlation
+  
+  print(
+    corrplot(corr.val,
+             method = "color", 
+             type = "full", 
+             order = "hclust", 
+             tl.col = "black", 
+             diag = F))
+  
+  dev.copy(pdf,
+           paste0(output.dir, "Corplot_RNA_", group.name, "_CTS_vs_Granzyme.pdf"))
+  dev.off()
+  
+  
+  # matrix of the p-value of the correlation
+  p.mat <- cor.mtest(RNA.data)
+  
+  print(
+    corrplot(corr.val,
+             method = "color", 
+             type = "full", 
+             order = "hclust", 
+             tl.col = "black", 
+             diag = FALSE,
+             p.mat = p.mat,
+             sig.level = 0.01, 
+             insig = "blank")
+  )
+  
+  
+  dev.copy(pdf,
+           paste0(output.dir, "Corplot_RNA_", group.name, "_CTS_vs_Granzyme_sig_values_only.pdf"))
+  dev.off()
+  
+  
+}
+
+
+
+##################################################
+# Analysis for CST genes vs granzyme genes 
+##################################################
+cst.genes <- grep("^CST.", rownames(pbmc.seurat), value = T)
+goi <- c(cytotoxicity.markers, cst.genes)
+
+for(i in 1:length(group.list)){
+  
+  # subset dataset for particular cell types
+  group.name <- names(group.list)[i]
+  temp.seurat <- subset(pbmc.seurat, idents = group.list[[i]])
+  
+  
+  # extract RNA info
+  RNA.data <- temp.seurat@assays$SCT@data
+  
+  # reduce dataset to just cytotoxic genes
+  index.vec <- grep(paste0("^", goi, "$", collapse = "|"), rownames(RNA.data))
+  
+  RNA.data <- RNA.data[index.vec, ]
+  RNA.data <- t(as.matrix(RNA.data))
+  head(RNA.data)
+  rownames(RNA.data)
+  
+  # Calculate correlation
+  corr.val <- cor(RNA.data)
+  
+  # Plot correlation
+  
+  print(
+    corrplot(corr.val,
+             method = "color", 
+             type = "full", 
+             order = "hclust", 
+             tl.col = "black", 
+             diag = F))
+  
+  dev.copy(pdf,
+           paste0(output.dir, "Corplot_RNA_", group.name, "_CST_vs_Granzyme.pdf"))
+  dev.off()
+  
+  
+  # matrix of the p-value of the correlation
+  p.mat <- cor.mtest(RNA.data)
+  
+  print(
+    corrplot(corr.val,
+             method = "color", 
+             type = "full", 
+             order = "hclust", 
+             tl.col = "black", 
+             diag = FALSE,
+             p.mat = p.mat,
+             sig.level = 0.01, 
+             insig = "blank")
+  )
+  
+  
+  dev.copy(pdf,
+           paste0(output.dir, "Corplot_RNA_", group.name, "_CST_vs_Granzyme_sig_values_only.pdf"))
+  dev.off()
+  
+  
+}
+
+
+```
+ 
+ 
+ 
+## Co-expression boolean {.tabset}
+
+
+
+### Co-expression boolean upset plots
+```{r boolean_coexpression_upset_plots}
+
+# note use ComplexUpset not UpsetR package
+#install.packages('ComplexUpset')
+library(ComplexUpset)
+
+# Create results directories
+output.dir <- "results/figures/PBMC_dataset_boolean_upset_plots/"
+
+if(!dir.exists(output.dir)){
+  dir.create(output.dir,
+             recursive = TRUE)}
+
+################################################
+# Boolean expression patterns within cell types
+################################################
+
+# determine thresholds for expression 
+DefaultAssay(pbmc.seurat) <- "SCT"
+
+theshold.val <- 1
+
+for(i in seq_along(cytotoxicity.markers)){
+  print(
+  scCustomize::VlnPlot_scCustom(pbmc.seurat, 
+                              feature = cytotoxicity.markers[i], 
+                              pt.size = 0, 
+                              group.by = "custom_anno") + 
+  NoLegend() +
+  geom_hline(yintercept = theshold.val, 
+             linetype = "dashed",
+             color = "red")
+  )
+  dev.copy(pdf, paste0(output.dir, "Threshold_val_determination_", cytotoxicity.markers[i], ".pdf"))
+  dev.off()
+  
+}
+
+
+
+########################################
+# perform analysis for CD8 T cells
+########################################
+
+# CD4 CTL
+# CD8 EM
+# NK Bright
+# NK Dim
+#gd 
+#gdVD2
+#MAIT
+
+
+# Determine expression status
+DefaultAssay(pbmc.seurat) <- "SCT"
+Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+unique(pbmc.seurat@meta.data$custom_anno)
+
+
+# populations to loop over
+subset.var <- c("CD8_Naive", "CD8_CM", "dnT", "CD8_EM", "CD4_CTL", "NK_Bright", "NK_Dim", "gdT_V9D2", "gdT", "MAIT")
+
+for(j in seq_along(subset.var)){
+  
+  print(paste0("Performing analysis for ", subset.var[j]))
+  
+  # subset dataset 
+  temp.seurat <- subset(pbmc.seurat, idents = subset.var[j])
+  
+  # quantify granzyme expression
+  for(i in seq_along(cytotoxicity.markers)){
+    logic.vec <- rownames(temp.seurat@assays$SCT@data) == cytotoxicity.markers[i]
+    goi.expression <- temp.seurat@assays$SCT@data[logic.vec, ]
+    expression.logic <- goi.expression > theshold.val
+    sum(names(expression.logic) != rownames(temp.seurat@meta.data)) # same order, nice and easy 
+    
+    temp.seurat@meta.data[[paste0(cytotoxicity.markers[i], "_status")]] <- expression.logic
+    
+  }
+  
+  # extract and format metadata
+  meta.data <- temp.seurat@meta.data %>%
+    dplyr::select(ends_with("_status"))
+  
+  input_data <- data.frame(lapply(meta.data, as.integer))
+  
+  rownames(input_data) <- rownames(meta.data)
+  
+  colnames(input_data) <- gsub("_status", "", colnames(input_data))
+  
+  print(
+    # plot upset plot 
+    ComplexUpset::upset(data = input_data, 
+                        n_intersections = 10,
+                        intersect = rev(c("GZMA", "GZMB", "GZMH", "GZMK", "GZMM", "GNLY", "PRF1", "NKG7")),
+                        name = "cytotoxic profile",
+                        width_ratio = 0.15,
+                        height_ratio = 0.5,
+                        min_size = 1,
+                        keep_empty_groups = TRUE,
+                        sort_intersections = 'descending',
+                        sort_sets = FALSE,
+                        base_annotations = list('Intersection size' = intersection_size(
+                          text_mapping = aes(label = paste0(round((!!get_size_mode("exclusive_intersection")/nrow(input_data))*100, 2), "%",
+                                                            "\n",
+                                                            "(",
+                                                            !!get_size_mode("exclusive_intersection"),
+                                                            ")")))
+                          
+                          + annotate(
+                            geom = 'text',
+                            x = Inf, 
+                            y = Inf,
+                            label = paste('Total:', nrow(input_data)),
+                            vjust = 1,
+                            hjust = 1)
+                          
+                          + ylab('Intersection size')
+                        ), 
+                        set_sizes = (upset_set_size()
+                                     + theme(axis.ticks.x = element_line())
+                                     + scale_y_continuous(trans = reverse_log_trans(),
+                                                          labels = log10)
+                                     + ylab("log10(set size)"))
+    )
+    
+  )
+  
+  
+  dev.copy(pdf, paste0(output.dir, "Upset_plot_", subset.var[j], "_top10_intersects.pdf"))
+  dev.off()
+  
+  
+}
+
+
+
+
+
+```
+ 
+ 
+### Co-expression boolean heatmap plots
+
+```{r boolean_heatmap_plots}
+
+
+
+# Create results directories
+output.dir <- "results/figures/PBMC_dataset_boolean_heatmaps/"
+
+if(!dir.exists(output.dir)){
+  dir.create(output.dir,
+             recursive = TRUE)}
+
+
+
+
+library(gplots)
+
+######################################################################
+# heatmaps of non-scaled values showing co-expression patterns 
+######################################################################
+
+# set up object
+DefaultAssay(pbmc.seurat) <- "SCT"
+Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+
+
+# populations to loop over
+subset.var <- c("CD8_Naive", "CD8_CM", "dnT", "CD8_EM", "CD4_CTL", "NK_Bright", "NK_Dim", "gdT_V9D2", "gdT", "MAIT")
+
+table(pbmc.seurat@meta.data$custom_anno)
+
+# set a custom breaks so all heatmaps are on same colour scale and can be compared
+length(batlow.pal)
+
+custom_breaks <- seq(from = 0, to = 6, length.out = 101)
+
+
+for(i in seq_along(subset.var)){
+  
+  # subset dataset
+  temp.seurat <- subset(pbmc.seurat, idents = subset.var[i])
+  
+  # scale dataset
+  temp.seurat <- ScaleData(temp.seurat)
+  
+  
+  # extract values 
+  data_values <- FetchData(temp.seurat,
+                           vars = cytotoxicity.markers, 
+                           layer = "data")
+  
+  # remove any NA values
+  data_values <- data_values %>%
+    filter(!all(is.na(.)))  # Keep rows where not all values are NA
+  
+  
+  # set random sample value, min of 2,000 or entire dataset
+  n.val <- min(2000, nrow(data_values))  
+  
+  
+  # Randomly sample rows
+  sampled_df <- data_values %>% 
+    sample_n(size = n.val, replace = FALSE)  # Sample without replacement
+  
+  # flip dataframe
+  sampled_df <- t(sampled_df)
+  
+  # if value below threshold value, set to 0
+  sampled_df[sampled_df < theshold.val] <- 0
+  
+  
+  # Create heatmap
+  print(
+    heatmap.2(as.matrix(sampled_df),   # Convert data frame to matrix
+              trace = "none",   # Do not display trace lines
+              col = batlow.pal,  
+              breaks = custom_breaks,
+              scale = "none",   # Do not scale rows or columns
+              dendrogram = "column",  
+              Rowv = FALSE,     
+              Colv = TRUE,     
+              margins = c(10, 10),  # Adjust margins for row and column labels
+              labRow = rownames(sampled_df),
+              labCol = TRUE,
+              na.rm=TRUE,
+              na.color = "white",
+              xlab = "Cells",
+              ylab = "Cytotoxicity Markers",
+              main = paste0(subset.var[i], " not scaled"),
+              distfun = function(x){dist(x , method = "euclidean")},
+              hclustfun = function(x){hclust(x , method = "ward.D2")}
+    )
+  )
+  
+  dev.copy(pdf, paste0(output.dir, "Heatmap_not_scaled_", subset.var[i], "_only.pdf"))
+  dev.off()
+  
+  
+}
+
+
+
+
+```
+ 
+ 
+ 
+ ### TEMP KEEP< BUT PROBABLY REMOVE this chunk
+ 
+### Visualise NKG7 and TIA1 expression in bulk RNAseq datasets
+```{r bulk_RNAseq_datasets_NKG7_vs_TIA1}
+
+
+library(ggplot2)
+
+
+Monaco_data <- celldex::MonacoImmuneData()
+
+
+
+# Extract gene expression data
+gene_expression <- assay(Monaco_data)
+gene_expression <- as.data.frame(gene_expression)
+
+gene_expression$gene <- rownames(gene_expression)
+
+
+grep("TIA1", rownames(gene_expression), value = T)
+grep("NKG7", rownames(gene_expression), value = T)
+
+gene_expression <- gene_expression[rownames(gene_expression) %in% c("NKG7", "TIA1"), ]
+
+
+library(tidyr)
+library(ggplot2)
+
+# Convert data to long format
+df_long <- pivot_longer(gene_expression, 
+                        cols = -gene, 
+                        names_to = "Cell_Type",
+                        values_to = "Expression")
+
+
+unique(df_long$Cell_Type)
+
+
+
+# Remove alphanumeric code and first underscore from Cell_Type
+df_long$Cell_Type <- gsub("^[[:alnum:]]{4}_", "", df_long$Cell_Type)
+
+# Display unique cell types after modification
+unique(df_long$Cell_Type)
+
+
+
+# Calculate average expression value for NKG7 for each cell type
+average_expression <- df_long %>%
+  filter(gene == "NKG7") %>%
+  group_by(Cell_Type) %>%
+  summarise(Avg_Expression_NKG7 = mean(Expression))
+
+# Reorder levels of Cell_Type factor based on average expression value for NKG7
+df_long$Cell_Type <- factor(df_long$Cell_Type, levels = average_expression$Cell_Type[order(average_expression$Avg_Expression_NKG7, decreasing = T)])
+
+# Plot boxplot
+ggplot(df_long, aes(x = Cell_Type, y = Expression, fill = gene)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitter(width = 0.2), alpha = 0.5) +
+  labs(x = "Cell Type", y = "Expression Value", fill = "Gene") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_fill_manual(values = c("NKG7" = "red", "TIA1" = "blue"))  # Customize colors if needed
+
+
+
+```
+
+
+
+
+
+ ## needs correcting 
+### NKG7 correlation across all genes 
+```{r correlation_of_NKG7_vs_all_genes}
+
+
+# Create results directories
+output.dir <- "results/figures/Correlation_goi_vs_all_genes/"
+
+if(!dir.exists(output.dir)){
+  dir.create(output.dir,
+             recursive = TRUE)}
+
+
+########################
+# Normalised RNA values
+########################
+
+DefaultAssay(pbmc.seurat) <- "SCT"
+Idents(pbmc.seurat) <- pbmc.seurat@meta.data$celltype.l1
+table(pbmc.seurat@meta.data$custom_anno, pbmc.seurat@meta.data$celltype.l1)
+
+table(pbmc.seurat@meta.data$celltype.l1)
+# 25K CD8, 18K NK cells 
+
+
+group.list <- list(cytotoxic_cells = c("CD8_T", "NK"), 
+                   CD8_cells = c("CD8_T"), 
+                   NK_cells = c("NK"))
+i = 3
+output.list <- list()
+
+  for(i in length(group.list)){
+  # subset dataset for particular cell types
+  group.name <- names(group.list)[i]
+  temp.seurat <- subset(pbmc.seurat, idents = group.list[[i]])
+  
+  
+  # extract normalised data table
+normed.data <- as.matrix(temp.seurat@assays$SCT@data)
+
+# calculate correlation
+output.list[[i]] <- sc.correlation(data.slot = normed.data,
+                        goi = "NKG7",
+                        remove.quantile = 0.3,
+                        output.tables = paste0("results/tables/Correlation_analysis_", group.name, "/"))
+
+names(output.list)[i] <- group.name
+
+  }
+
+
+
+top.genes <- output.list[[3]] %>%
+  dplyr::filter(FDR < 0.05) %>%
+  dplyr::top_n(50, Cor.val) %>%
+  dplyr::arrange(desc(Cor.val)) %>%
+  pull(GeneID)
+
+
+bot.genes <- output.list[[3]] %>%
+  dplyr::filter(FDR < 0.05) %>%
+  dplyr::top_n(-50, Cor.val) %>%
+  dplyr::arrange(Cor.val) %>%
+  pull(GeneID)
+
+goi <- c(top.genes, bot.genes)
+
+
+
+
+
+
+
+temp.seurat <- subset(temp.seurat, downsample = 500)
+temp.seurat <- ScaleData(temp.seurat)
+
+DoHeatmap(temp.seurat, 
+          group.by = "custom_anno", 
+          features = goi)
+
+
+
+
+scCustomize::VlnPlot_scCustom(temp.seurat, "CST7", pt.size = 0)
+
+goi.1 <- grep("^CST.", rownames(temp.seurat), value = T)
+goi.2 <- grep("^CTS.", rownames(temp.seurat), value = T)
+
+Idents(pbmc.seurat) <- pbmc.seurat@meta.data$custom_anno
+temp.seurat <- AverageExpression(pbmc.seurat, return.seurat = T)
+
+
+DoHeatmap(temp.seurat, 
+          draw.lines = F,
+          features = c(goi.1, goi.2, cytotoxicity.markers), raster = F)
+
+
+# Getting the frequency count using table
+freq_table <- table(pbmc.seurat@meta.data$custom_anno)
+
+# Converting to data frame
+df <- data.frame(value = names(freq_table), frequency = as.numeric(freq_table))
+
+# Reshaping to long format
+df_long <- df %>%
+  arrange(desc(frequency))  # Arranging by frequency in descending order
+
+# Show the transformed data
+
+
+df_long$value <- factor(df_long$value, levels = df_long$value)
+
+
+
+ggplot(df_long, aes(x = value, y = frequency)) +
+  geom_col(fill = "#112446") +
+  theme_minimal() +
+  #scale_y_log10() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+corrplot(corr.val,
+         method = "shade", 
+         type = "full", 
+         order = "hclust", 
+         tl.col = "black", 
+         diag = FALSE,
+         p.mat = p.mat,
+         sig.level = 0.01, 
+         insig = "blank")
+
+
+DefaultAssay(temp.seurat) <- "alra"
+FeatureScatter(temp.seurat, 
+               feature1 = "GZMK",
+               feature2 = "GZMB",
+               pt.size = 5,
+               span = TRUE)
+
+
+
+
+
+
+
+
+```
+
+
+
+### WGCNA
+```{r remedy001}
+
+# run in terminal 
+# create new conda environment for R
+#conda create -n hdWGCNA -c conda-forge r-base r-essentials
+
+# activate conda environment
+#conda activate hdWGCNA
+
+```
+
+
+
+
+### analysed up to here
+
+
+### Subsettting dataset for NK, CD8, and CD4 subsets and perform dim reduction 
+```{r subsetting_dataset}
+
+
+# Set up dataset
+DefaultAssay(reference) <- "SCT"
+Idents(reference) <- reference@meta.data$celltype.l1
+unique(Idents(reference))
+
+
+# Subset dataset
+#CD8.seurat <- subset(reference, idents = "CD8 T")
+#CD4.seurat <- subset(reference, idents = "CD4 T")
+#NK.seurat <- subset(reference, idents = "NK")
+
+# Make a list of seurat objects
+#seurat.list <- c(CD8.seurat, CD4.seurat, NK.seurat)
+#names(seurat.list) <- c("CD8_cells", "CD4_cells", "NK_cells")
+
+NK.T.seurat <- subset(reference, idents = c("CD8 T", "CD4 T", "NK"))
+
+seurat.list <- c(NK.T.seurat)
+names(seurat.list) <- c("NK_T_cells")
+
+rm(NK.T.seurat)
+
+
+# remove single seurat objects
+#rm(CD8.seurat, CD4.seurat, NK.seurat)
+
+
+
+
+# Re-normalise
+seurat.list <- lapply(X = seurat.list, 
+                      FUN = SCTransform, 
+                      assay = "SCT",
+                      method = "glmGamPoi", 
+                      verbose = TRUE) 
+
+
+# Scale and Calculate PCA - RNA
+for(i in seq_along(seurat.list)){
+  seurat.list[[i]] <- seurat.list[[i]] %>%
+    NormalizeData() %>%
+    FindVariableFeatures() %>% 
+    ScaleData() %>% 
+    RunPCA()
+}
+
+
+
+
+
+
+# Normalise, Scale and Calculate PCA - ADT
+
+for(i in seq_along(seurat.list)){
+  
+  DefaultAssay(seurat.list[[i]]) <- 'ADT'
+  
+  # we will use all ADT features for dimensional reduction
+  # we set a dimensional reduction name to avoid overwriting the 
+  VariableFeatures(seurat.list[[i]]) <- rownames(seurat.list[[i]][["ADT"]])
+  
+  seurat.list[[i]] <- seurat.list[[i]] %>%
+    NormalizeData(normalization.method = 'CLR', 
+                  margin = 2) %>% 
+    ScaleData() %>% 
+    RunPCA(reduction.name = 'apca')
+}
+
+
+seurat.list <- lapply(X = seurat.list, 
+                      FUN = FindMultiModalNeighbors, 
+                      reduction.list = list("pca", "apca"),
+                      dims.list = list(1:30, 1:18), 
+                      modality.weight.name = "Multi.weight") 
+
+seurat.list <- lapply(X = seurat.list, 
+                      FUN = RunSPCA, 
+                      assay = 'SCT',
+                      graph = 'wsnn') 
+
+
+seurat.list <- lapply(X = seurat.list, 
+                      FUN = RunUMAP, 
+                      reduction = 'spca', 
+                      dims = 1:50) 
+
+
+
+
+DimPlot(seurat.list[[1]], group.by = "celltype.l1", reduction = "umap") 
+
+DimPlot(seurat.list[[1]], group.by = "donor", reduction = "umap") 
+DimPlot(seurat.list[[1]], group.by = "donor", reduction = "wnn.umap") 
+DimPlot(seurat.list[[1]], group.by = "celltype.l2", reduction = "umap") 
+
+
+
+DimPlot(object = NK.seurat, 
+        reduction = "wnn.umap",
+        group.by = "celltype.l1",
+        label = TRUE, 
+        label.size = 3, 
+        repel = TRUE) + 
+  NoLegend()
+
+
+
+
+
+
+
+
+
+DimPlot(reference, group.by = "donor", reduction = "umap") 
+DimPlot(reference, group.by = "celltype.l2", reduction = "umap") 
+
+
+
+
+SaveH5Seurat(temp.seurat, 
+             filename = "Exported_RDS_files/pbmc_multimodal_CD8_cells_only.h5seurat",
+             overwrite = TRUE)
+
+# remove data
+rm(temp.seurat)
+
+
+
+```
+
+### work in progress, playground 
+
+### heatmap
+```{r heatmap_TIA_NKG7}
+
+######################
+# Heatmap plot
+######################
+
+output.dir <- "results/figures/NKG7_vs_TIA1/"
+if(!dir.exists(output.dir)){
+  dir.create(output.dir, 
+             recursive = T)}
+
+########################
+# For RNA genes
+########################
+
+# set assay 
+DefaultAssay(pbmc.seurat) <- "SCT"
+
+goi <- c("TIA1", "NKG7")
+
+# quick plot to look at data
+VlnPlot_scCustom(pbmc.seurat,
+                 features = goi,
+                 pt.size = 0,
+                 group.by = "celltype.l1",
+                 sort = "increasing",
+                 log = FALSE, 
+                 same.y.lim = T) + NoLegend()
+
+# select order for data to be in 
+temp.seurat <- pbmc.seurat
+temp.seurat@meta.data$celltype.l1 <- factor(temp.seurat@meta.data$celltype.l1, levels = c("NK", "other_T", "CD8_T", "other", "CD4_T", "B", "Mono", "DC"))
+
+# ordered data
+VlnPlot_scCustom(temp.seurat,
+                 features = goi,
+                 pt.size = 0,
+                 group.by = "celltype.l1",
+                 log = FALSE, 
+                 same.y.lim = T) + NoLegend()
+
+dev.copy(pdf, paste0(output.dir, "VlnPlot_NKG7_vs_TIA1.pdf"))
+dev.off()
+
+
+
+# data from gene expression atlas
+
+
+
+```
+
+
