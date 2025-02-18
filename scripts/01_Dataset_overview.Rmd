@@ -376,7 +376,7 @@ if(do.plot){
 ```{r Figure_1D_Sojka}
 
 # output dir
-output.dir <- "results/figures/Figure_1/"
+output.dir <- "results/figures/IFNsig/"
 
 if(!dir.exists(output.dir)){
   dir.create(output.dir, 
@@ -397,20 +397,105 @@ msigdbr::msigdbr_collections()
 
 msigdbr::msigdbr_species()
 
-# Mus musculus
-Hallmarks.genes <- msigdbr::msigdbr(species = "Mus musculus", category = "H")
+# Human signatures
+Hallmarks.genes <- msigdbr::msigdbr(species = "Homo sapiens", category = "H")
 
 
 hall.sigs <- unique(Hallmarks.genes$gs_name)
 
-
-# extract interferon signature
+# Extract interferon signature
 hallmark.signature <- Hallmarks.genes %>%
   dplyr::filter(gs_name == "HALLMARK_INTERFERON_ALPHA_RESPONSE") %>%
   pull(gene_symbol)
 
+# Set default assay
+DefaultAssay(seurat.object) <- "SCT"
 
-heatmap.df <- sojka.ordered.counts[rownames(sojka.ordered.counts) %in% hallmark.signature, ]
+# Set identities based on cell type
+Idents(seurat.object) <- seurat.object@meta.data$celltype
+
+
+    # Create pseudobulk for visualization
+    pseudo.HL <- AggregateExpression(seurat.object, 
+                                     assays = "SCT",
+                                     return.seurat = TRUE,
+                                     group.by = "celltype")
+    
+    # Set idents of pseudobulk object
+    Idents(pseudo.HL) <- "celltype"
+    
+    
+    # Heatmap of top 10 DEGs per cluster
+    gex.p <- DoHeatmap(pseudo.HL, 
+                       features = hallmark.signature, 
+                       draw.lines = FALSE, 
+                       raster = FALSE)
+    
+    print(gex.p)
+    
+    # ggsave(filename = paste0(output.dir, "Heatmap_top_10_DEGs_", cluster.var.clean, "_pseudobulk.pdf"),
+    #        plot = gex.p,
+    #        device = "pdf",
+    #        width = 6, height = 5)
+
+
+    
+    
+    
+    seurat.object <- AddModuleScore(seurat.object, features = list("IFNsig" = hallmark.signature), name = "IFNsig")
+    
+    head(seurat.object@meta.data)
+    VlnPlot_scCustom(seurat.object, 
+                     "IFNsig1", group.by = "celltype", split.by = "tissue", pt.size = 0)
+    
+    
+    
+    DimPlot_scCustom(seurat.object, reduction = "umap.cca.sct")
+    
+    
+    FeaturePlot_scCustom(seurat.object, features = "IFNsig1", reduction = "umap.cca.sct")
+    
+    
+
+table(seurat.object@meta.data$tissue, seurat.object@meta.data$celltype)
+    
+    
+    
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    
+    
+    
+    
+    heatmap.df <- sojka.ordered.counts[rownames(sojka.ordered.counts) %in% hallmark.signature, ]
 
 
 
