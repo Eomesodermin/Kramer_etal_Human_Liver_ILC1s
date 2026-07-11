@@ -1,51 +1,13 @@
-# TEMP TITLE
+# Human liver ILC1s — single-cell analysis
 
-## Project Summary
+Analysis of the **human liver type-1 innate lymphoid cell (ILC1)** single-cell dataset from
+Kramer et al., characterising liver-resident ILC1 / NK-cell populations.
 
-Understand the .....
+## Analysis
+- `scripts/01_Dataset_overview.Rmd` — dataset overview, cell-type annotation and marker visualisation
 
-## To-Do
+## Data
+Processed objects are kept outside version control (available from the original source).
 
--   [ ] Placeholder
-
-## Dataset Info
-
--   FILL OUT
-
-    
-## Development Notes
-
--   FILL OUT
-
-## File Structure
-
-The repository contains the following top-level directories:
-
-- **`data/`** _(ignored by Git)_  
-  - Contains output from `cellranger`  
-  - Will be uploaded to Zenodo for accessibility.
-
-- **`results/`** _(ignored by Git)_  
-  - Stores processed analysis results.  
-  - Not tracked in version control.
-
-- **`saves/`** _(ignored by Git)_  
-  - Contains intermediate objects such as Seurat objects.  
-  - These files will also be uploaded to Zenodo.
-
-- **`scripts/`**  
-  - Includes all analysis and processing scripts.
-  - Tracked in version control.
-    - **`01_Preprocessing.Rmd`**
-      - Reads in `cellranger` output and performs the following 
-      - QC, Ambient RNA removal, Doublet detection, Normalisation, Integration, Dim Reduction, cluster calling
-
-## Data availability
-
-- Raw Data (Upload to GEO and provide link)  
-- `cellranger` output (upload zenodo link)
-- `seurat.objects` (upload zenodo link)
-
-## Author Information
-
--   [Dillon Corvino](https://github.com/Eomesodermin)
+---
+Analysis by **Dillon Corvino** · [GitHub](https://github.com/Eomesodermin) · [dilloncorvino.com](https://dilloncorvino.com)
