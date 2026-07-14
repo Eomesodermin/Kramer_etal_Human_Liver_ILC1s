@@ -1,5 +1,15 @@
 # Human liver ILC1s — single-cell analysis
 
+## Source paper
+
+Re-analysis of the publicly available single-cell dataset from:
+
+> **Krämer B, et al. Single-cell RNA sequencing identifies a population of human liver-type ILC1s.**  
+> *Cell Reports* 42, 111937 (2023). https://doi.org/10.1016/j.celrep.2022.111937
+
+This repository re-analyses that dataset to examine liver-resident ILC1 / NK-cell populations in the context of a separate project.
+
+
 Analysis of the **human liver type-1 innate lymphoid cell (ILC1)** single-cell dataset from
 Kramer et al., characterising liver-resident ILC1 / NK-cell populations.
 
